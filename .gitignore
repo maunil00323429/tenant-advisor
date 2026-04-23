@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+.env.local
+.env
+*.zip
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+package/
+__pycache__/
+*.pyc
+.vercel/

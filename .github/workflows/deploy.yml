@@ -1,0 +1,77 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [dev, prod]
+        default: dev
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.DEFAULT_AWS_REGION }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Package Lambda
+        run: |
+          chmod +x infra/package.sh
+          ./infra/package.sh
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Apply Terraform
+        working-directory: infra
+        run: |
+          terraform init
+          terraform workspace select dev || terraform workspace new dev
+          terraform apply -auto-approve
+
+      - name: Get Terraform Outputs
+        id: tf
+        working-directory: infra
+        run: |
+          echo "bucket=$(terraform output -raw frontend_bucket)" >> $GITHUB_OUTPUT
+          echo "cf_id=$(terraform output -raw cloudfront_domain)" >> $GITHUB_OUTPUT
+          echo "api_url=$(terraform output -raw api_gateway_url)" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build Frontend
+        run: |
+          npm ci
+          npm run build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ steps.tf.outputs.api_url }}
+
+      - name: Sync to S3
+        run: aws s3 sync out/ s3://${{ steps.tf.outputs.bucket }}/ --delete
+
+      - name: Invalidate CloudFront
+        run: |
+          DIST_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?DomainName=='${{ steps.tf.outputs.cf_id }}'].Id" --output text)
+          aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"
