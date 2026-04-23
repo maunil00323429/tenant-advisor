@@ -1,3 +1,7 @@
+# CI/CD pipeline — deploys the full stack on every push to main (or manual trigger).
+# Steps: package Lambda → terraform apply → build Next.js → sync to S3 → invalidate CloudFront.
+# Uses OIDC (id-token: write) for keyless AWS authentication via an assumed role.
+
 name: Deploy
 
 on:
@@ -11,7 +15,7 @@ on:
         default: dev
 
 permissions:
-  id-token: write
+  id-token: write   # required for OIDC federation with AWS
   contents: read
 
 jobs:
@@ -20,6 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # OIDC-based AWS auth — no long-lived access keys stored in secrets
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -31,6 +36,7 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Build lambda.zip (deps + source) — must run before terraform apply
       - name: Package Lambda
         run: |
           chmod +x infra/package.sh
@@ -39,8 +45,9 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_wrapper: false
+          terraform_wrapper: false  # avoids wrapping output in extra metadata
 
+      # Provision/update all AWS resources (Lambda, API GW, DynamoDB, S3, CloudFront, etc.)
       - name: Apply Terraform
         working-directory: infra
         run: |
@@ -48,6 +55,7 @@ jobs:
           terraform workspace select dev || terraform workspace new dev
           terraform apply -auto-approve
 
+      # Capture Terraform outputs for use in later steps (S3 bucket, CloudFront domain, API URL)
       - name: Get Terraform Outputs
         id: tf
         working-directory: infra
@@ -61,6 +69,8 @@ jobs:
         with:
           node-version: 20
 
+      # NEXT_PUBLIC_API_URL is baked into the static export so the frontend
+      # knows where to send API requests (via the rewrite in next.config.js)
       - name: Build Frontend
         run: |
           npm ci
@@ -68,9 +78,11 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: ${{ steps.tf.outputs.api_url }}
 
+      # Deploy the static Next.js export to S3; --delete removes stale files
       - name: Sync to S3
         run: aws s3 sync out/ s3://${{ steps.tf.outputs.bucket }}/ --delete
 
+      # Bust the CloudFront cache so visitors immediately see the new build
       - name: Invalidate CloudFront
         run: |
           DIST_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?DomainName=='${{ steps.tf.outputs.cf_id }}'].Id" --output text)

@@ -2,9 +2,6 @@ from http.server import BaseHTTPRequestHandler
 import json
 import os
 import re
-import urllib.request
-
-from openai import OpenAI
 
 SYSTEM_PROMPT = """
 You are an expert Landlord-Tenant Dispute Advisor with deep knowledge of
@@ -71,13 +68,6 @@ def _validate(body):
     return errors
 
 
-def _verify_clerk_jwt(auth_header):
-    """Basic JWT verification — checks that a Bearer token is present."""
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return None
-    return auth_header.split(" ", 1)[1]
-
-
 class handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         _json_response(self, 200, {})
@@ -87,8 +77,8 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            token = _verify_clerk_jwt(self.headers.get("Authorization"))
-            if not token:
+            auth_header = self.headers.get("Authorization")
+            if not auth_header or not auth_header.startswith("Bearer "):
                 _json_response(self, 401, {"error": "Missing or invalid Authorization header"})
                 return
 
@@ -109,7 +99,8 @@ class handler(BaseHTTPRequestHandler):
                 f"Desired Outcome: {body['desired_outcome']}\n"
             )
 
-            client = OpenAI()
+            from openai import OpenAI
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "").strip())
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
