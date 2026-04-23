@@ -17,40 +17,74 @@ export default function ProductPage() {
   const [disputeDescription, setDisputeDescription] = useState("");
   const [desiredOutcome, setDesiredOutcome] = useState("");
   const [output, setOutput] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
+    setError("");
+
+    if (!provinceOrState || provinceOrState.length < 2) {
+      setError("Please enter your province or state.");
+      return;
+    }
+    if (!leaseStartDate) {
+      setError("Please select a lease start date.");
+      return;
+    }
+    if (disputeDescription.length < 50) {
+      setError("Dispute description must be at least 50 characters.");
+      return;
+    }
+    if (desiredOutcome.length < 10) {
+      setError("Desired outcome must be at least 10 characters.");
+      return;
+    }
+
     setLoading(true);
     setOutput("");
-    const token = await getToken();
-    const dateStr = leaseStartDate
-      ? leaseStartDate.toISOString().split("T")[0]
-      : "";
 
-    await fetchEventSource("/api", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        user_role: userRole,
-        province_or_state: provinceOrState,
-        dispute_category: disputeCategory,
-        lease_start_date: dateStr,
-        dispute_description: disputeDescription,
-        desired_outcome: desiredOutcome,
-      }),
-      onmessage(ev) {
-        setOutput((prev) => prev + ev.data + "\n");
-      },
-      onclose() {
-        setLoading(false);
-      },
-      onerror() {
-        setLoading(false);
-      },
-    });
+    try {
+      const token = await getToken();
+      const dateStr = leaseStartDate.toISOString().split("T")[0];
+
+      await fetchEventSource("/api", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          user_role: userRole,
+          province_or_state: provinceOrState,
+          dispute_category: disputeCategory,
+          lease_start_date: dateStr,
+          dispute_description: disputeDescription,
+          desired_outcome: desiredOutcome,
+        }),
+        async onopen(response) {
+          if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`API error ${response.status}: ${text}`);
+          }
+        },
+        onmessage(ev) {
+          setOutput((prev) => prev + ev.data + "\n");
+        },
+        onclose() {
+          setLoading(false);
+        },
+        onerror(err) {
+          setLoading(false);
+          setError(err?.message || "Something went wrong. Please try again.");
+          throw err;
+        },
+      });
+    } catch (err: any) {
+      setLoading(false);
+      if (err?.message && !error) {
+        setError(err.message);
+      }
+    }
   };
 
   return (
@@ -115,6 +149,12 @@ export default function ProductPage() {
         <button onClick={handleSubmit} disabled={loading}>
           {loading ? "Analyzing..." : "Get Advice"}
         </button>
+
+        {error && (
+          <div style={{ color: "red", marginTop: "1rem", padding: "0.75rem", backgroundColor: "#fff0f0", borderRadius: "6px", border: "1px solid #ffcccc" }}>
+            {error}
+          </div>
+        )}
 
         {output && (
           <div className="output">
