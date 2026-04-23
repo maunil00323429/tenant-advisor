@@ -70,11 +70,14 @@ Desired Outcome: {record.desired_outcome}
 """
 
 
+@app.get("/")
 @app.get("/health")
+@app.get("/api/health")
 def health_check():
     return {"status": "healthy", "version": "1.0"}
 
 
+@app.post("/")
 @app.post("/api")
 def process(
     record: InputRecord,
