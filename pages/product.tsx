@@ -3,7 +3,6 @@ import { useAuth } from "@clerk/nextjs";
 import { UserButton, Protect } from "@clerk/nextjs";
 // @ts-ignore - PricingTable may not be in all @clerk/nextjs versions
 import { PricingTable } from "@clerk/nextjs";
-import { fetchEventSource } from "@microsoft/fetch-event-source";
 import ReactMarkdown from "react-markdown";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -47,7 +46,7 @@ export default function ProductPage() {
       const token = await getToken();
       const dateStr = leaseStartDate.toISOString().split("T")[0];
 
-      await fetchEventSource("/api", {
+      const res = await fetch("/api/advisor", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -61,29 +60,20 @@ export default function ProductPage() {
           dispute_description: disputeDescription,
           desired_outcome: desiredOutcome,
         }),
-        async onopen(response) {
-          if (!response.ok) {
-            const text = await response.text();
-            throw new Error(`API error ${response.status}: ${text}`);
-          }
-        },
-        onmessage(ev) {
-          setOutput((prev) => prev + ev.data + "\n");
-        },
-        onclose() {
-          setLoading(false);
-        },
-        onerror(err) {
-          setLoading(false);
-          setError(err?.message || "Something went wrong. Please try again.");
-          throw err;
-        },
       });
-    } catch (err: any) {
-      setLoading(false);
-      if (err?.message && !error) {
-        setError(err.message);
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        const msg = data.details ? data.details.join(", ") : data.error || "API request failed";
+        setError(msg);
+      } else {
+        setOutput(data.response);
       }
+    } catch (err: any) {
+      setError(err?.message || "Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -92,9 +82,14 @@ export default function ProductPage() {
       <div style={{ display: "flex", justifyContent: "flex-end", padding: "1rem" }}>
         <UserButton showName={true} />
       </div>
+
+      {/* Clerk <Protect> renders the advisor form only for premium subscribers;
+          everyone else sees the <PricingTable /> paywall as a fallback. */}
       {/* @ts-ignore - plan prop available in newer Clerk versions */}
       <Protect plan="premium_subscription" fallback={<PricingTable />}>
         <h1>Landlord-Tenant Dispute Advisor</h1>
+
+        {/* --- Intake form: all fields map 1:1 to the backend InputRecord Pydantic model --- */}
 
         <label>I am a:</label>
         <select value={userRole} onChange={(e) => setUserRole(e.target.value)}>
@@ -156,6 +151,7 @@ export default function ProductPage() {
           </div>
         )}
 
+        {/* Render the streamed Markdown (rights summary, analysis, letter, next steps) */}
         {output && (
           <div className="output">
             <ReactMarkdown>{output}</ReactMarkdown>

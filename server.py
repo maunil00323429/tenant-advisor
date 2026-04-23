@@ -1,3 +1,8 @@
+# AWS Lambda backend — the production API that runs behind API Gateway + CloudFront.
+# Uses Amazon Bedrock (Nova model) instead of OpenAI, and optionally persists
+# conversation history in DynamoDB. Deployed via lambda_handler.py + Mangum.
+# This is the AWS-native counterpart to api/index.py (which runs on Vercel with OpenAI).
+
 import os
 import boto3
 from botocore.exceptions import ClientError
@@ -11,11 +16,16 @@ from dynamo_memory import load_conversation, save_conversation
 from secrets import get_secret
 
 app = FastAPI()
+
+# Clerk JWT verification — same mechanism as the Vercel endpoint
 clerk_config = ClerkConfig(jwks_url=os.getenv("CLERK_JWKS_URL"))
 clerk_guard = ClerkHTTPBearer(clerk_config)
 
+# When true, conversations are stored in DynamoDB and CORS origins are pulled from Secrets Manager
 USE_DYNAMODB = os.getenv("USE_DYNAMODB", "false").lower() == "true"
 
+# In AWS (Lambda), CORS origins live in Secrets Manager so they can be updated without redeploying.
+# Locally, fall back to the CORS_ORIGINS env var.
 if USE_DYNAMODB:
     config = get_secret(os.getenv("SECRET_NAME", "tenant-advisor/config-dev"))
     cors_origins = config.get("CORS_ORIGINS", "http://localhost:3000").split(",")
@@ -31,6 +41,7 @@ app.add_middleware(
 )
 
 
+# Same Pydantic schema as api/index.py — kept in sync manually
 class InputRecord(BaseModel):
     user_role: str = Field(..., pattern="^(tenant|landlord)$")
     province_or_state: str = Field(..., min_length=2)
@@ -38,7 +49,7 @@ class InputRecord(BaseModel):
     lease_start_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     dispute_description: str = Field(..., min_length=50, max_length=2000)
     desired_outcome: str = Field(..., min_length=10)
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None  # ties requests to a DynamoDB conversation
 
 
 system_prompt = """
@@ -90,6 +101,7 @@ Desired Outcome: {record.desired_outcome}
 """
 
 
+# Bedrock client — initialized once at module load for Lambda container reuse
 bedrock = boto3.client(
     service_name="bedrock-runtime",
     region_name=os.getenv("BEDROCK_REGION", "us-east-1")
@@ -101,6 +113,8 @@ def health_check():
     return {"status": "healthy", "version": "1.0"}
 
 
+# Main advisor endpoint — authenticates via Clerk, calls Bedrock, optionally persists to DynamoDB.
+# Unlike the Vercel version (api/index.py), this returns a single JSON response (no streaming).
 @app.post("/api")
 def process(
     record: InputRecord,
@@ -109,8 +123,10 @@ def process(
     user_id = creds.decoded["sub"]
     session_id = record.session_id if record.session_id else user_id
 
+    # Load prior conversation turns if DynamoDB is enabled (multi-turn context)
     conversation = load_conversation(session_id) if USE_DYNAMODB else []
 
+    # "global." prefix enables cross-region inference for better availability
     model_id = os.getenv("BEDROCK_MODEL_ID", "global.amazon.nova-2-lite-v1:0")
     response = bedrock.converse(
         modelId=model_id,
@@ -119,6 +135,7 @@ def process(
     )
     assistant_response = response["output"]["message"]["content"][0]["text"]
 
+    # Append both turns and persist so future requests can include conversation history
     conversation.append({"role": "user", "content": user_prompt_for(record)})
     conversation.append({"role": "assistant", "content": assistant_response})
     if USE_DYNAMODB:

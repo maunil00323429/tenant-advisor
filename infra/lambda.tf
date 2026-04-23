@@ -1,3 +1,7 @@
+# Lambda function + IAM — defines the execution role and the function itself.
+# The role gets permissions for CloudWatch Logs, DynamoDB, Bedrock, and Secrets Manager.
+
+# Execution role that Lambda assumes at runtime
 resource "aws_iam_role" "lambda_exec" {
   name = "${local.name_prefix}-lambda-role"
   assume_role_policy = jsonencode({
@@ -8,21 +12,25 @@ resource "aws_iam_role" "lambda_exec" {
   tags = { Project = var.project_name; ManagedBy = "terraform" }
 }
 
+# CloudWatch Logs — required for Lambda to write log output
 resource "aws_iam_role_policy_attachment" "logs" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# DynamoDB — conversation persistence (dynamo_memory.py)
 resource "aws_iam_role_policy_attachment" "dynamodb" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
 }
 
+# Bedrock — LLM inference for the advisor (server.py)
 resource "aws_iam_role_policy_attachment" "bedrock" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonBedrockFullAccess"
 }
 
+# Secrets Manager — scoped to this project's secrets only (not account-wide)
 resource "aws_iam_role_policy" "secrets" {
   name = "${local.name_prefix}-secrets-policy"
   role = aws_iam_role.lambda_exec.id
@@ -34,9 +42,11 @@ resource "aws_iam_role_policy" "secrets" {
   })
 }
 
+# The Lambda function — runs the FastAPI app via Mangum (lambda_handler.py).
+# lambda.zip is built by infra/package.sh before terraform apply.
 resource "aws_lambda_function" "api" {
   filename         = "lambda.zip"
-  source_code_hash = filebase64sha256("lambda.zip")
+  source_code_hash = filebase64sha256("lambda.zip") # triggers redeploy on code change
   function_name    = "${local.name_prefix}-api"
   role             = aws_iam_role.lambda_exec.arn
   handler          = "lambda_handler.handler"
@@ -56,6 +66,7 @@ resource "aws_lambda_function" "api" {
     }
   }
 
+  # Ensure IAM policies are attached before the function tries to use them
   depends_on = [
     aws_iam_role_policy_attachment.logs,
     aws_iam_role_policy_attachment.dynamodb,

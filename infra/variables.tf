@@ -1,3 +1,5 @@
+# Input variables — override defaults in terraform.tfvars or via -var flags.
+
 variable "aws_region" {
   description = "AWS region for all resources"
   type        = string
@@ -28,6 +30,7 @@ variable "lambda_timeout" {
   default     = 30
 }
 
+# Public JWKS endpoint — not a secret, safe to commit in terraform.tfvars
 variable "clerk_jwks_url" {
   description = "Clerk JWKS URL for JWT verification (not secret — safe to store in tfvars)"
   type        = string

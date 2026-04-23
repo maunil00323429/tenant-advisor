@@ -1,4 +1,1 @@
-fastapi
 openai
-pydantic
-fastapi-clerk-auth

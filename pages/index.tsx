@@ -1,12 +1,16 @@
+// Landing page — public-facing marketing page that introduces the product.
+// Unauthenticated visitors see a sign-in button; signed-in users see their Clerk profile widget.
+
 import { SignInButton, UserButton, useUser } from "@clerk/nextjs";
 import Link from "next/link";
 
 export default function LandingPage() {
+  // Clerk hook to toggle between sign-in CTA and user avatar
   const { isSignedIn } = useUser();
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", color: "#1a1a1a" }}>
-      {/* Header */}
+      {/* Nav bar — shows Clerk UserButton when signed in, SignInButton otherwise */}
       <header
         style={{
           display: "flex",
@@ -20,7 +24,7 @@ export default function LandingPage() {
         {isSignedIn ? <UserButton showName={true} /> : <SignInButton />}
       </header>
 
-      {/* Hero Section */}
+      {/* Hero — primary value proposition and CTA to the advisor form */}
       <section style={{ textAlign: "center", padding: "4rem 2rem" }}>
         <h1 style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>
           Know Your Rights Before You Respond
@@ -29,6 +33,7 @@ export default function LandingPage() {
           AI-powered dispute advice for tenants and landlords. Get a rights summary,
           a professional response letter, and step-by-step next steps — in seconds.
         </p>
+        {/* Routes to the gated product page (/product) */}
         <Link href="/product">
           <button
             style={{
@@ -46,7 +51,7 @@ export default function LandingPage() {
         </Link>
       </section>
 
-      {/* Features */}
+      {/* Feature cards — mirrors the four Markdown sections the AI produces */}
       <section style={{ padding: "3rem 2rem", backgroundColor: "#f9fafb" }}>
         <h2 style={{ textAlign: "center", marginBottom: "2rem" }}>What You Get</h2>
         <div style={{ display: "flex", gap: "2rem", justifyContent: "center", flexWrap: "wrap" }}>
@@ -65,7 +70,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Pricing Preview */}
+      {/* Pricing tiers — Free tier is informational, Premium unlocks the advisor via Clerk plans */}
       <section style={{ padding: "3rem 2rem", textAlign: "center" }}>
         <h2>Pricing</h2>
         <div style={{ display: "flex", gap: "2rem", justifyContent: "center", marginTop: "1.5rem" }}>
