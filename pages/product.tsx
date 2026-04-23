@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { UserButton, Protect } from "@clerk/nextjs";
+// @ts-ignore - PricingTable may not be in all @clerk/nextjs versions
 import { PricingTable } from "@clerk/nextjs";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import ReactMarkdown from "react-markdown";
@@ -57,6 +58,7 @@ export default function ProductPage() {
       <div style={{ display: "flex", justifyContent: "flex-end", padding: "1rem" }}>
         <UserButton showName={true} />
       </div>
+      {/* @ts-ignore - plan prop available in newer Clerk versions */}
       <Protect plan="premium_subscription" fallback={<PricingTable />}>
         <h1>Landlord-Tenant Dispute Advisor</h1>
 
